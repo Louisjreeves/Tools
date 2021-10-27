@@ -10,28 +10,33 @@ Function Invoke-TSRCollector{
     [CmdletBinding(
         SupportsShouldProcess = $true,
         ConfirmImpact = 'High')]
-        param($param)
+        param(
+            [Parameter(Mandatory=$False, Position=1)]
+            [bool] $LeaveShare,
+            $param)
 ## Gather Tech Support Report Collector for all nodes in a cluster
     CLS
 Function EndScript{  
     break
 }
+$DateTime=Get-Date -Format yyyyMMdd_HHmmss
+Start-Transcript -NoClobber -Path "C:\programdata\Dell\TSRCollector\TSRCollector_$DateTime.log"
 $text=@"
-v1.0
+v1.4
   _____ ___ ___    ___     _ _        _           
  |_   _/ __| _ \  / __|___| | |___ __| |_ ___ _ _ 
    | | \__ \   / | (__/ _ \ | / -_) _|  _/ _ \ '_|
    |_| |___/_|_\  \___\___/_|_\___\__|\__\___/_|  
                                                   
-by: Jim Gandy
+                                    by: Jim Gandy
 "@
 Write-Host $text
 $Title=@()
-    $Title+="Welcome to Tech Support Report Collector"
+    #$Title+="Welcome to Tech Support Report Collector"
     Write-host $Title
-    Write-host " "
+#    Write-host " "
     Write-host "   This tool is used to collect TSRs from"
-    Write-host "   all nodes in a cluster and bring them back to a single share"
+    Write-host "   all nodes in a cluster into a single share"
     Write-host " "
     if ($PSCmdlet.ShouldProcess($param)) {
 # Fix 8.3 temp paths
@@ -53,23 +58,75 @@ $user = "root"
 $pass= "calvin"
 $secpasswd = ConvertTo-SecureString $pass -AsPlainText -Force
 $credential = New-Object System.Management.Automation.PSCredential($user, $secpasswd)
-$ShareIP=((Get-wmiObject Win32_networkAdapterConfiguration | ?{$_.IPEnabled}) | ?{$_.DefaultIPGateway.length -gt 0}).ipaddress[0]
+# IP address of the machine sharing
+    Write-Host "Gathering Host IP Address..."
+    $NSLookupOut=cmd /c "nslookup $env:COMPUTERNAME"
+    ForEach($item in $NSLookupOut){
+        $NSLookupAll+=$item
+    }
+    $ShareIP=(($NSLookupAll -split 'Name:    ')[-1] -split 'Address:  ')[-1]
+    Write-Host "    Host IP: $ShareIP"
 # Create a new folder and shares it
     Write-Host "Creating a new shared folder to save the TSRs..."
-    $ShareName = "TSRdata"
+    $ShareName = "Logs"
     $ShareFolder=$MyTemp+"\"+$ShareName
     New-Item -ItemType Directory -Force -Path $ShareFolder  >$null 2>&1
-    New-SmbShare -Name "TSRdata" -Path "$ShareFolder" -Temporary -FullAccess Everyone  >$null 2>&1
+    New-SmbShare -Name "Logs" -Path "$ShareFolder" -Temporary -FullAccess Everyone  >$null 2>&1
     Write-Host "    Share location is $ShareFolder"
 # Gets the logged on creds
     Write-Host "Gathering the credentials to access the share..."
     $sus = $env:UserName
-    $sdom = (Get-WmiObject win32_computersystem).Domain
+    #$sdom = (Get-WmiObject win32_computersystem).Domain
+    $sdom = cmd /c "whoami"
+    $sdom = ($sdom -split "\\")[0]
     $ShareCreds=Get-Credential -Message "Enter credentials to access the share name to copy the TSR to the share." -UserName $sus
+# Test SBM share
+    Write-Host "Checking SMB share exists..."
+    IF(Get-SmbShare | Where-Object{$_.Name -imatch 'Logs'}){
+        Write-Host "    SUCCESS: SMB share found." -ForegroundColor Green
+        Write-Host "Connecting to SMB share with provdied creds..."
+        Remove-PSDrive -Name logs >$null 2>&1
+        sleep 3
+        $s=0
+        New-PSDrive -Credential $ShareCreds1 -Name Logs -Root "\\$ShareIP\$ShareName" -PSProvider FileSystem  >$null 2>&1
+        While(-not(Get-PSDrive -Name Logs)){
+            $s++
+            Write-Host "    WARNING: Failed to access share with provided creds. Please try again." -ForegroundColor Yellow
+            Sleep 3
+            $ShareCreds=Get-Credential -Message "Enter credentials to access the share name to copy the TSR to the share." -UserName $sus
+            IF($s -ge 3){
+                Write-Host "    ERROR: Failed too many time. Exiting..." -ForegroundColor Red
+                Break script
+            }
+            New-PSDrive -Credential $ShareCreds1 -Name Logs -Root "\\$ShareIP\$ShareName" -PSProvider FileSystem
+        }Write-Host "    SUCCESS: Able to access SMB share with provided creds." -ForegroundColor Green
+    Remove-PSDrive -Name logs >$null 2>&1
+    }Else{
+        Write-Host "    ERROR: File share not created. Exiting." -ForegroundColor Red
+        Break script
+    }
 # Gathers the iDRAC IP addresses from all nodes
-    Write-Host "Gathering the iDRAC IP Addresses from cluster nodes..."
-    $iDRACIPs=Invoke-Command -ComputerName (Get-ClusterNode -Cluster (Get-Cluster).Name) -ScriptBlock {
-    (Get-PcsvDevice).IPv4Address
+    If(Get-Service clussvc -ErrorAction SilentlyContinue){
+        Write-Host "Gathering the iDRAC IP Addresses from cluster nodes..."
+        $iDRACIPs=Invoke-Command -ComputerName (Get-ClusterNode -Cluster (Get-Cluster).Name) -ScriptBlock {
+        (Get-PcsvDevice).IPv4Address
+        }
+    }Else{
+        # Get iDRAC IP addresses
+        $iDIPs=Read-Host "Please enter comma delimited list of iDRAC IP addresse(s)"
+        $i=0
+        IF($iDIPs -imatch ','){$iDIPs=$iDIPs -split ','}
+        While(($iDIPs.count -eq ($iDIPs | %{[IPAddress]$_.Trim()}).count) -eq $False){
+            $i++
+            Write-Host "WARNING: Not a valid IP. Please try again." -ForegroundColor Yellow
+            $iDIPs=Read-Host "Please enter comma delimited list of switch IP addresses"
+            IF($iDIPs -imatch ','){$iDIPs=$iDIPs -split ','}
+            IF($i -ge 2){
+                Write-Host "ERROR: Too many attempts. Exiting..." -ForegroundColor Red
+                break script
+            }
+        }
+        $iDRACIPs=$iDIPs
     }
     Write-Host "    FOUND:$iDRACIPs"
 # Run TechSupportReport on each node
@@ -92,17 +149,30 @@ $ShareIP=((Get-wmiObject Win32_networkAdapterConfiguration | ?{$_.IPEnabled}) | 
             ($result.Content| ConvertFrom-Json).'@Message.ExtendedInfo'
         }
         Catch{
-            IF($RespErr){
+            IF(($RespErr.message| ConvertFrom-Json).error.'@Message.ExtendedInfo'.message -match 'already running'){
+                Write-Host "    ERROR: A SupportAssist job is already running on the server. Please try again later." -ForegroundColor Red
+            }ElseIF(($RespErr.message| ConvertFrom-Json).error.'@Message.ExtendedInfo'.message -imatch 'The authentication credentials included with this request are missing or invalid.'){
                 $credential=Get-Credential -Message "Please enter the iDRAC Adminitrator credentials for $idrac_ip"
                 $result= Invoke-WebRequest -UseBasicParsing -Uri $URI -Credential $credential -Method POST -Headers @{'content-type'='application/json';'Accept'='application/json'} -Body $body -ErrorVariable RespErr
             }
         }
     IF($result.StatusCode -eq 202){Write-Host "    StatusCode:"$result.StatusCode "Successfully scheduled TSR" -ForegroundColor Green }Else{Write-Host "    ERROR: StatusCode:" $result.StatusCode "Failed to scheduled TSR" -ForegroundColor Red}
     }
-# Change directory to the shared folder were the TSRs will be put
-    cd $ShareFolder
-    Invoke-Expression "explorer ."
     Write-Host "Please wait while TSRs are collected. Ussually this takes 2-5 minutes per node."
-    
-}
-}
+    IF(!($LeaveShare -eq $True)){
+        # Creating Scheduled Job to remove SMB share in 10 mins
+            Write-Host "Creating Scheduled Job to remove SMB share in 10 mins..."
+            $dateTime = (Get-Date).AddSeconds(600)
+            $T = New-JobTrigger -Once -At "$($dateTime.ToString("MM/dd/yyyy HH:mm"))" 
+            IF(Get-ScheduledJob | Where-Object{$_.Name -eq "TSRCollector"}){Unregister-ScheduledJob -Name "TSRCollector"}
+            Register-ScheduledJob -Name "TSRCollector" -Trigger $T -ScriptBlock {
+                # Remove share
+                    Remove-SmbShare -Name "Logs" -Force
+            }
+        # Change directory to the shared folder were the TSRs will be put
+            cd $ShareFolder
+            Invoke-Expression "explorer ."
+    }
+} #End ShouldProcess
+Stop-Transcript
+}# End Invoke-TSRCollector
