@@ -1,4 +1,4 @@
-﻿  
+  
 <#
     .Synopsis
        BOILER.ps1
@@ -10,8 +10,86 @@
        Invoke-BOILER
 #>
 Function Invoke-BOILER{
+Write-Host "Logging Telemetry Information..."
+function add-TableData1 {
+    [CmdletBinding()] 
+        param(
+            [Parameter(Mandatory = $true)]
+            [string] $tableName,
+
+            [Parameter(Mandatory = $true)]
+            [string] $PartitionKey,
+
+            [Parameter(Mandatory = $true)]
+            [string] $RowKey,
+
+            [Parameter(Mandatory = $true)]
+            [array] $data,
+            
+            [Parameter(Mandatory = $false)]
+            [array] $SasToken
+        )
+        $storageAccount = "gsetools"
+
+        # Allow only add and update access via the "Update" Access Policy on the CluChkTelemetryData table
+        # Ref: az storage table generate-sas --connection-string 'USE YOUR KEY' -n "CluChkTelemetryData" --policy-name "Update" 
+        If(-not($SasToken)){
+            $sasWriteToken = "?sv=2019-02-02&si=BOILERTelemetryData-1863C024043&sig=R7x%2B%2BHEeiBpcvp6hnjCH5CJjotOT1qzgcW8c8Qcr7sY%3D&tn=BOILERTelemetryData"
+        }Else{$sasWriteToken=$SasToken}
+
+        $resource = "$tableName(PartitionKey='$PartitionKey',RowKey='$Rowkey')"
+
+        # should use $resource, not $tableNmae
+        $tableUri = "https://$storageAccount.table.core.windows.net/$resource$sasWriteToken"
+       # Write-Host   $tableUri 
+
+        # should be headers, because you use headers in Invoke-RestMethod
+        $headers = @{
+            Accept = 'application/json;odata=nometadata'
+        }
+
+        $body = $data | ConvertTo-Json
+        #This will write to the table
+        #write-host "Invoke-RestMethod -Method PUT -Uri $tableUri -Headers $headers -Body $body -ContentType application/json"
+		try {
+			$item = Invoke-RestMethod -Method PUT -Uri $tableUri -Headers $headers -Body $body -ContentType application/json
+		} catch {
+			#write-warning ("table $tableUri")
+			#write-warning ("headers $headers")
+		}
+		
+}# End function add-TableData
+$DateTime=Get-Date -Format yyyyMMdd_HHmmss
+Start-Transcript -NoClobber -Path "C:\programdata\Dell\BOILER\BOILER_$DateTime.log"
 #region Opening Banner and menu
-$Ver="1.1"
+$Ver="1.3"
+# Get the internet connection IP address by querying a public API
+    $internetIp = Invoke-RestMethod -Uri "https://api.ipify.org?format=json" | Select-Object -ExpandProperty ip
+
+# Define the API endpoint URL
+    $geourl = "http://ip-api.com/json/$internetIp"
+
+# Invoke the API to determine Geolocation
+    $response = Invoke-RestMethod $geourl
+
+$data = @{
+    Region=$env:UserDomain
+    Version=$Ver
+    ReportID=$CReportID  
+    country=$response.country
+    counrtyCode=$response.countryCode
+    georegion=$response.region
+    regionName=$response.regionName
+    city=$response.city
+    zip=$response.zip
+    lat=$response.lat
+    lon=$response.lon
+    timezone=$response.timezone
+}
+$RowKey=(new-guid).guid
+$PartitionKey="BOILER"
+add-TableData1 -TableName "BOILERTelemetryData" -PartitionKey $PartitionKey -RowKey $RowKey -data $data
+#endregion End of Telemetry data
 Clear-Host
 $text = @"
 v$Ver
@@ -112,7 +190,7 @@ ForEach($CBSLog in $LogsToProcess){
     $CBSErrors=Get-Content $CBSLog | Select-String -SimpleMatch "failed",", Error",", Warning" | Select LineNumber,line
     # known list of language tags
     # Ref: https://docs.microsoft.com/en-us/cpp/c-runtime-library/language-strings?view=msvc-160#supported-language-strings
-    $LangTags="ar-SA","bg-BG","ca-ES","cs-CZ","da-DK","de-DE","el-GR","en-GB","en-US","es-ES","es-MX","et-EE","eu-ES","fi-FI","fr-CA","fr-FR","gl-ES","he-IL","hr-HR","hu-HU","id-ID","it-IT","ja-JP","ko-KR","lt-LT","lv-LV","nb-NO","nl-NL","pl-PL","pt-BR","pt-PT","ro-RO","ru-RU","sk-SK","sl-SI","sr-Latn-CS","sr-Latn-RS","sv-SE","th-TH","tr-TR","uk-UA","vi-VN","zh-CN","zh-HK","zh-TW”
+    $LangTags="ar-SA","bg-BG","ca-ES","cs-CZ","da-DK","de-DE","el-GR","en-GB","en-US","es-ES","es-MX","et-EE","eu-ES","fi-FI","fr-CA","fr-FR","gl-ES","he-IL","hr-HR","hu-HU","id-ID","it-IT","ja-JP","ko-KR","lt-LT","lv-LV","nb-NO","nl-NL","pl-PL","pt-BR","pt-PT","ro-RO","ru-RU","sk-SK","sl-SI","sr-Latn-CS","sr-Latn-RS","sv-SE","th-TH","tr-TR","uk-UA","vi-VN","zh-CN","zh-HK","zh-TW"
     $BadKBs=@()
     $BadLangPacks=@()
     $CBSErrorBadKBs=@()
@@ -224,4 +302,5 @@ ForEach($CBSLog in $LogsToProcess){
    
  # Cleanup expanded zips            
  IF($UnzipPath2Remove.Count -gt 0){Remove-Item $UnzipPath2Remove -Recurse}
+ Stop-Transcript
  }

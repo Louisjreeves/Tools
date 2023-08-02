@@ -2,8 +2,30 @@
   NOTE: All tools should be run from ISE as administorator unless otherwise noted. 
 
 ### Support
-  Please note this code is provided as-is and currently not supported by Dell EMC.
+Kindly be advised that this code is being offered as-is and Dell will not provide any support in using these tools. However, if you encounter any issues, we would appreciate it if you could submit them under the "Issues" section.
+  
 
+-------------------------------------------------------------------------------------------------------------------------------------------------
+## Tool Box
+Tool Box is a menu of all the tools to run them from one place
+	 
+   ![alt text](readme/toolbox_v1.1.jpg)
+   
+### Usage
+Copy the below powershell code and paste into PowerShell
+```Powershell
+Echo ToolBox;[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12;Invoke-Expression('$module="ToolBox";$repo="PowershellScripts"'+(new-object net.webclient).DownloadString('https://raw.githubusercontent.com/DellProSupportGse/Tools/main/ToolBox.ps1'));Invoke-ToolBox
+``` 
+-------------------------------------------------------------------------------------------------------------------------------------------------
+## AzHCIUrlChecker
+   This script checks the URLs that the Azure Stack HCI operating system may need to access as per Microsoft Doc: 
+	https://docs.microsoft.com/en-us/azure-stack/hci/concepts/firewall-requirements
+	
+### Usage
+Copy the below powershell code and paste into PowerShell
+```Powershell
+Echo AzHCIUrlChecker;[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12;Invoke-Expression('$module="AzHCIUrlChecker";$repo="PowershellScripts"'+(new-object net.webclient).DownloadString('https://raw.githubusercontent.com/DellProSupportGse/Tools/main/AzHCIUrlChecker.ps1'));Invoke-AzHCIUrlChecker
+``` 
 -------------------------------------------------------------------------------------------------------------------------------------------------
 ## BOILER
    Filters the CBS/DISM logs for Errors/Fails/Warnings to quickly identify failing KB's, Language Tags or
@@ -99,7 +121,7 @@
    
    This tool is used to collect all the logs Switches, Servers and OS
    
-   ![alt text](readme/LogCollector.jpg)
+   ![alt text](readme/logcollector_v1.28.jpg)
    
    How To Use: 
       From PowerShell as admin execute the following and follow the prompts:
@@ -123,12 +145,10 @@
 ```Powershell
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12;Invoke-Expression('$module="SDDC";$repo="PowershellScripts"'+(new-object net.webclient).DownloadString('https://raw.githubusercontent.com/DellProSupportGse/Tools/main/RunSDDC.ps1'));Invoke-RunSDDC
 ```
-
----
 -------------------------------------------------------------------------------------------------------------------------------------------------
 ## SDDC Offline
  
- How To Use:
+### How To Use with Desktop Experience:
  
     1. Download the SDDC from this link <https://github.com/DellProSupportGse/PrivateCloud.DiagnosticInfo/archive/master.zip>
     2. Copy to the node where you will run it
@@ -136,6 +156,16 @@
     4. Run the copied code
     5. It will ask you for the location of the downloaded SDDC from step 1 ans 2
     6. The rest will run as normal
+    
+ ### How to use with Server Core/HCI OS:
+     1. Download the SDDC from this link <https://github.com/DellProSupportGse/PrivateCloud.DiagnosticInfo/archive/master.zip>
+     2. Right click and copy the downloaded master.zip
+     3. RDP into the node and open Notepad
+     4. Click Open and browse to the folder you wish to paste the master.zip and then paste it
+     5. Open SDDCOffline <https://raw.githubusercontent.com/DellProSupportGse/Tools/main/SDDCOffline.ps1> from a machine with a web brower and copy the code
+     6. Switch back to the Server Core/HCI node and paste it into a PowerShell session
+     7. It will ask you for the location of the downloaded SDDC from step 1 ans 2
+     8. The rest will run as normal
    
 -------------------------------------------------------------------------------------------------------------------------------------------------
 ## TSR Collector
@@ -158,6 +188,16 @@
 ```Powershell
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12;Invoke-Expression('$module="FLCkr";$repo="PowershellScripts"'+(new-object System.net.webclient).DownloadString('https://raw.githubusercontent.com/DellProSupportGse/Tools/main/FLCkr.ps1'));Invoke-FLCkr
 ```
+-------------------------------------------------------------------------------------------------------------------------------------------------
+
+## Convert-Etl2Pcap
+Convert ETL network traces to PCap for use with WireShark
+   
+### Usage
+Copy the below powershell code and paste into PowerShell
+```Powershell
+Echo ToolBox;[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12;Invoke-Expression('$module="Convert-Etl2Pcap";$repo="PowershellScripts"'+(new-object net.webclient).DownloadString('https://raw.githubusercontent.com/DellProSupportGse/Tools/main/Convert-Etl2Pcap.ps1'));Invoke-ETL2PCAP
+``` 
 -------------------------------------------------------------------------------------------------------------------------------------------------
 
 ### Report problems or provide feedback

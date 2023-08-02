@@ -11,11 +11,13 @@ Function Invoke-RunSDDC {
     [CmdletBinding(
         SupportsShouldProcess = $true,
         ConfirmImpact = 'High')]
-        param($param)
+        param(
+        [Parameter(Mandatory=$False)]
+         [string] $CaseNumber)
     CLS
     CLS
 $text=@"
-v1.2
+v1.21
   ___           ___ ___  ___   ___ 
  | _ \_  _ _ _ / __|   \|   \ / __|
  |   / || | ' \\__ \ |) | |) | (__ 
@@ -26,6 +28,10 @@ Write-Host $text
 Write-Host ""
 Write-Host "This tool is used to collect SDDC logs"
 Write-Host "" 
+$MyTemp=(Get-Item $env:temp).fullname
+$Logs = $MyTemp + "\Logs\"
+New-Item -ItemType Directory -Force -Path $Logs
+if (-not ($Casenumber)) {$CaseNumber = Read-Host -Prompt "Please Provide the case number SDDC is being collected for"}
 # Fix 8.3 temp paths
     $MyTemp=(Get-Item $env:temp).fullname
 # Clean old PrivateCloud.DiagnosticInfo
@@ -58,8 +64,8 @@ Write-Host ""
     Import-Module $ModulePath -Force
 
 # Clean up old SDDC's
-    IF(Test-Path "$env:USERPROFILE\HealthTest-S2DCluster-*.zip"){Remove-Item $env:USERPROFILE\HealthTest-S2DCluster-*.zip -Force}    
-
+    IF(Test-Path "$env:USERPROFILE\HealthTest-*.zip"){Remove-Item $env:USERPROFILE\HealthTest-*.zip -Force}    
+    IF(Test-Path "$Logs\HealthTest-*.zip"){Remove-Item $Logs\HealthTest-*.zip -Force}
 # Run SDDC
     # Run SDDC if cluster service found on node
     IF(Get-Service clussvc -ErrorAction SilentlyContinue){
@@ -99,8 +105,15 @@ Write-Host ""
                     Write-Error "    ERROR: Failed to connect to cluster $ClusterToCollectLogsFrom. Please check the cluster name and run again."
                 }
             }
-# Move to Logs if exists
+# Move to Logs 
 IF(Test-Path -Path "$MyTemp\logs"){
-        Copy-Item -Path "$env:USERPROFILE\HealthTest-S2DCluster-*.zip" -Destination "$MyTemp\logs\"
-        }
-}# End of Invoke-RunSDDC
+        Copy-Item -Path "$env:USERPROFILE\HealthTest-*.zip" -Destination "$MyTemp\logs\"
+        $HealthZip = Get-ChildItem $MyTemp\logs\Healthtest*.zip
+        $HealthZipNew = $HealthZip.BaseName + "-" + $CaseNumber + ".zip"
+        Rename-Item -Path $HealthZip -NewName $HealthZipNew
+        $HealthZip = Get-ChildItem $MyTemp\logs\Healthtest*.zip
+        #Get the File-Name without path
+$name = (Get-Item $HealthZip).Name
+
+}
+} # End of Invoke-RunSDDC

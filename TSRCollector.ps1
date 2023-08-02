@@ -1,4 +1,4 @@
-    <#
+ <#
     .Synopsis
        Invoke-TSRCollector
     .DESCRIPTION
@@ -11,108 +11,19 @@ Function Invoke-TSRCollector{
         SupportsShouldProcess = $true,
         ConfirmImpact = 'High')]
         param(
-            [Parameter(Mandatory=$False, Position=1)]
-            [bool] $LeaveShare,
-            $param)
+            $param,
+	    [Parameter(Mandatory=$False, Position=1)]
+            [string] $CaseNumber,
+	    [Parameter(Mandatory=$False, Position=2)]
+            [System.Management.Automation.PSCredential]
+            [System.Management.Automation.Credential()]
+            $credential = [System.Management.Automation.PSCredential]::Empty)
 ## Gather Tech Support Report Collector for all nodes in a cluster
     CLS
 Function EndScript{  
     break
 }
-$DateTime=Get-Date -Format yyyyMMdd_HHmmss
-Start-Transcript -NoClobber -Path "C:\programdata\Dell\TSRCollector\TSRCollector_$DateTime.log"
-$text=@"
-v1.4
-  _____ ___ ___    ___     _ _        _           
- |_   _/ __| _ \  / __|___| | |___ __| |_ ___ _ _ 
-   | | \__ \   / | (__/ _ \ | / -_) _|  _/ _ \ '_|
-   |_| |___/_|_\  \___\___/_|_\___\__|\__\___/_|  
-                                                  
-                                    by: Jim Gandy
-"@
-Write-Host $text
-$Title=@()
-    #$Title+="Welcome to Tech Support Report Collector"
-    Write-host $Title
-#    Write-host " "
-    Write-host "   This tool is used to collect TSRs from"
-    Write-host "   all nodes in a cluster into a single share"
-    Write-host " "
-    if ($PSCmdlet.ShouldProcess($param)) {
-# Fix 8.3 temp paths
-    $MyTemp=(Get-Item $env:temp).fullname
-[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls -bor [Net.SecurityProtocolType]::Tls11 -bor [Net.SecurityProtocolType]::Tls12
-add-type @"
-    using System.Net;
-    using System.Security.Cryptography.X509Certificates;
-    public class TrustAllCertsPolicy : ICertificatePolicy {
-        public bool CheckValidationResult(
-            ServicePoint srvPoint, X509Certificate certificate,
-            WebRequest request, int certificateProblem) {
-            return true;
-        }
-    }
-"@
-[System.Net.ServicePointManager]::CertificatePolicy = New-Object TrustAllCertsPolicy
-$user = "root"
-$pass= "calvin"
-$secpasswd = ConvertTo-SecureString $pass -AsPlainText -Force
-$credential = New-Object System.Management.Automation.PSCredential($user, $secpasswd)
-# IP address of the machine sharing
-    Write-Host "Gathering Host IP Address..."
-    $NSLookupOut=cmd /c "nslookup $env:COMPUTERNAME"
-    ForEach($item in $NSLookupOut){
-        $NSLookupAll+=$item
-    }
-    $ShareIP=(($NSLookupAll -split 'Name:    ')[-1] -split 'Address:  ')[-1]
-    Write-Host "    Host IP: $ShareIP"
-# Create a new folder and shares it
-    Write-Host "Creating a new shared folder to save the TSRs..."
-    $ShareName = "Logs"
-    $ShareFolder=$MyTemp+"\"+$ShareName
-    New-Item -ItemType Directory -Force -Path $ShareFolder  >$null 2>&1
-    New-SmbShare -Name "Logs" -Path "$ShareFolder" -Temporary -FullAccess Everyone  >$null 2>&1
-    Write-Host "    Share location is $ShareFolder"
-# Gets the logged on creds
-    Write-Host "Gathering the credentials to access the share..."
-    $sus = $env:UserName
-    #$sdom = (Get-WmiObject win32_computersystem).Domain
-    $sdom = cmd /c "whoami"
-    $sdom = ($sdom -split "\\")[0]
-    $ShareCreds=Get-Credential -Message "Enter credentials to access the share name to copy the TSR to the share." -UserName $sus
-# Test SBM share
-    Write-Host "Checking SMB share exists..."
-    IF(Get-SmbShare | Where-Object{$_.Name -imatch 'Logs'}){
-        Write-Host "    SUCCESS: SMB share found." -ForegroundColor Green
-        Write-Host "Connecting to SMB share with provdied creds..."
-        Remove-PSDrive -Name logs >$null 2>&1
-        sleep 3
-        $s=0
-        New-PSDrive -Credential $ShareCreds1 -Name Logs -Root "\\$ShareIP\$ShareName" -PSProvider FileSystem  >$null 2>&1
-        While(-not(Get-PSDrive -Name Logs)){
-            $s++
-            Write-Host "    WARNING: Failed to access share with provided creds. Please try again." -ForegroundColor Yellow
-            Sleep 3
-            $ShareCreds=Get-Credential -Message "Enter credentials to access the share name to copy the TSR to the share." -UserName $sus
-            IF($s -ge 3){
-                Write-Host "    ERROR: Failed too many time. Exiting..." -ForegroundColor Red
-                Break script
-            }
-            New-PSDrive -Credential $ShareCreds1 -Name Logs -Root "\\$ShareIP\$ShareName" -PSProvider FileSystem
-        }Write-Host "    SUCCESS: Able to access SMB share with provided creds." -ForegroundColor Green
-    Remove-PSDrive -Name logs >$null 2>&1
-    }Else{
-        Write-Host "    ERROR: File share not created. Exiting." -ForegroundColor Red
-        Break script
-    }
-# Gathers the iDRAC IP addresses from all nodes
-    If(Get-Service clussvc -ErrorAction SilentlyContinue){
-        Write-Host "Gathering the iDRAC IP Addresses from cluster nodes..."
-        $iDRACIPs=Invoke-Command -ComputerName (Get-ClusterNode -Cluster (Get-Cluster).Name) -ScriptBlock {
-        (Get-PcsvDevice).IPv4Address
-        }
-    }Else{
-        # Get iDRAC IP addresses
+    Function Get-iDRACIPaddresses{
         $iDIPs=Read-Host "Please enter comma delimited list of iDRAC IP addresse(s)"
         $i=0
         IF($iDIPs -imatch ','){$iDIPs=$iDIPs -split ','}
@@ -126,53 +37,166 @@ $credential = New-Object System.Management.Automation.PSCredential($user, $secpa
                 break script
             }
         }
-        $iDRACIPs=$iDIPs
+        #$iDRACIPs=$iDIPs
+        return $iDIPs
     }
-    Write-Host "    FOUND:$iDRACIPs"
+
+$DateTime=Get-Date -Format yyyyMMdd_HHmmss
+#Start-Transcript -NoClobber -Path "C:\programdata\Dell\TSRCollector\TSRCollector_$DateTime.log"
+write-host "$(Start-Transcript -NoClobber -Path "C:\programdata\Dell\TSRCollector\TSRCollector_$DateTime.log")"
+$text=@"
+v1.82
+  _____ ___ ___    ___     _ _        _           
+ |_   _/ __| _ \  / __|___| | |___ __| |_ ___ _ _ 
+   | | \__ \   / | (__/ _ \ | / -_) _|  _/ _ \ '_|
+   |_| |___/_|_\  \___\___/_|_\___\__|\__\___/_|  
+                                                  
+                                    by: Jim Gandy
+"@
+Write-Host $text
+$Title=@()
+    #$Title+="Welcome to Tech Support Report Collector"
+    Write-host $Title
+#    Write-host " "
+    Write-host "   This tool is used to collect TSRs from"
+    Write-host "   all nodes in a cluster into a single zip file"
+    Write-host " "
+    if ($PSCmdlet.ShouldProcess($param)) {
+# Fix 8.3 temp paths
+    $MyTemp=(Get-Item $env:temp).fullname
+    
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls -bor [Net.SecurityProtocolType]::Tls11 -bor [Net.SecurityProtocolType]::Tls12
+add-type @"
+    using System.Net;
+    using System.Security.Cryptography.X509Certificates;
+    public class TrustAllCertsPolicy : ICertificatePolicy {
+        public bool CheckValidationResult(
+            ServicePoint srvPoint, X509Certificate certificate,
+            WebRequest request, int certificateProblem) {
+            return true;
+        }
+    }
+"@
+[System.Net.ServicePointManager]::CertificatePolicy = New-Object TrustAllCertsPolicy
+if (-not ($Casenumber)) {$dowait=$true;$CaseNumber = Read-Host -Prompt "Please Provide the case number TSR's are being collected for"} else {$dowait=$false}
+$user = "root"
+$pass= "calvin"
+$secpasswd = ConvertTo-SecureString $pass -AsPlainText -Force
+if (-not ($credential)) {$credential = New-Object System.Management.Automation.PSCredential($user, $secpasswd)}
+# Gathers the iDRAC IP addresses from all nodes
+If(Get-Service clussvc -ErrorAction SilentlyContinue){
+    Write-Host "Gathering the iDRAC IP Addresses from cluster nodes..."
+    $iDRACIPs=Invoke-Command -ComputerName (Get-ClusterNode -Cluster (Get-Cluster).Name) -ScriptBlock {
+    (Get-PcsvDevice).IPv4Address
+    }
+}Else{
+    #$dowait=$true
+    # Get iDRAC IP addresses
+    $iDRACIPs = Get-iDRACIPaddresses
+}
+Do{
+    Write-Host "    iDRAC IP Address(s):"
+    Write-host "        $iDRACIPs"
+    $iDRACIPCheck = Read-Host "    Is the list above the correct list of iDRAC IP Addresses? (Y/N)"
+}
+until ($iDRACIPCheck -match '[yY,nN]')
+IF($iDRACIPCheck -imatch "n"){
+    #$dowait=$true
+    $iDRACIPs = Get-iDRACIPaddresses
+    Do{
+    Write-Host "    iDRAC IP Address(s):"
+    Write-host "        $iDRACIPs"
+    $iDRACIPCheck = Read-Host "    Is the list above the correct list of iDRAC IP Addresses? (Y/N)"
+}
+until ($iDRACIPCheck -match '[yY,nN]')
+}
+IF($iDRACIPCheck -imatch "n"){Write-Host "Too many tries. Rerun script";Stop-Transcript;Break}
+
+$debugCheck = (Read-Host "Collect Debug logs also (Y/[N]) ").ToUpper()
+if ($debugCheck -eq "Y") {
+    $DataSelector =  @("HWData","TTYLogs","OSAppData","DebugLogs")
+} else {
+    $DataSelector =  @("HWData","TTYLogs","OSAppData")
+}
+$draccreds=@{}
 # Run TechSupportReport on each node
     ForEach($IP in $iDRACIPs){
         $result=@()
         Write-Host "Collecting TSR from: $IP..."
-        $body = @{
-            "IPAddress"= $ShareIP;
-            "UserName"= $ShareCreds.UserName;
-            "Password"= $ShareCreds.GetNetworkCredential().Password;
-            "ShareName"= $ShareName;
-            "ShareType"="CIFS";
-            } | ConvertTo-Json
-        $idrac_ip=$IP
-        $URI="https://$idrac_ip/redfish/v1/Dell/Managers/iDRAC.Embedded.1/DellLCService/Actions/DellLCService.ExportTechSupportReport"
-                           
+        $idrac_ip=$IP            
+        $Body = @{"ShareType"="Local";"DataSelectorArrayIn"=''}
+        $Body["DataSelectorArrayIn"] = $DataSelector
+        $Body = $Body | ConvertTo-Json -Compress
+        $uri = "https://$idrac_ip/redfish/v1/Dell/Managers/iDRAC.Embedded.1/DellLCService/Actions/DellLCService.SupportAssistCollection"
         Try{
             $RespErr =""
             $result=Invoke-WebRequest -UseBasicParsing -Uri $URI -Credential $credential -Method POST -Headers @{'content-type'='application/json';'Accept'='application/json'} -Body $body -ErrorVariable RespErr 
-            ($result.Content| ConvertFrom-Json).'@Message.ExtendedInfo'
+            Write-Host "$(($result.Content| ConvertFrom-Json).'@Message.ExtendedInfo')"
         }
         Catch{
-            IF(($RespErr.message| ConvertFrom-Json).error.'@Message.ExtendedInfo'.message -match 'already running'){
+            $RespErrMessage=$null
+            $credfail=""
+            Try {$RespErrMessage=($RespErr.message| ConvertFrom-Json).error.'@Message.ExtendedInfo'.message} catch {}
+            IF($RespErrMessage -match 'already running'){
                 Write-Host "    ERROR: A SupportAssist job is already running on the server. Please try again later." -ForegroundColor Red
-            }ElseIF(($RespErr.message| ConvertFrom-Json).error.'@Message.ExtendedInfo'.message -imatch 'The authentication credentials included with this request are missing or invalid.'){
-                $credential=Get-Credential -Message "Please enter the iDRAC Adminitrator credentials for $idrac_ip"
-                $result= Invoke-WebRequest -UseBasicParsing -Uri $URI -Credential $credential -Method POST -Headers @{'content-type'='application/json';'Accept'='application/json'} -Body $body -ErrorVariable RespErr
+            } ElseIF($RespErrMessage -match 'The authentication credentials included with this request are missing or invalid.' -or $RespErr.Message -eq "The remote server returned an error: (401) Unauthorized."){
+                $iDRACIPs[$iDRACIPs.IndexOf($idrac_ip)]="!$idrac_ip"
+                $credfail="!"
+                $dowait=$true
+                $newcredential=Get-Credential -Message "Please enter the iDRAC Adminitrator credentials for $idrac_ip"
+                $draccreds.add("!$idrac_ip",$newcredential)
+                $result= Invoke-WebRequest -UseBasicParsing -Uri $URI -Credential $newcredential -Method POST -Headers @{'content-type'='application/json';'Accept'='application/json'} -Body $body -ErrorVariable RespErr
+                Write-Host "$(($result.Content| ConvertFrom-Json).'@Message.ExtendedInfo')"
             }
         }
-    IF($result.StatusCode -eq 202){Write-Host "    StatusCode:"$result.StatusCode "Successfully scheduled TSR" -ForegroundColor Green }Else{Write-Host "    ERROR: StatusCode:" $result.StatusCode "Failed to scheduled TSR" -ForegroundColor Red}
+    IF($RespErrMessage -match "Unable to run the method because the requested HTTP method is not allowed.") {
+        Write-Warning "Idrac8 Detected. Using racadm"
+        try {
+            $tag=(racadm -r $idrac_ip -u "$($credential.UserName)" -p "$($credential.GetNetworkCredential().Password)" getsysinfo | findstr Service).substring(26)
+            racadm -r $idrac_ip -u "$($credential.UserName)" -p "$($credential.GetNetworkCredential().Password)" techsupreport export -f "$Mytemp\logs\TSRCollector\TSR$(get-date -Format 'yyyyMMddHHmmss')_$tag.zip"
+            $result = @([pscustomobject]@{statuscode=202})
+        } catch {Write-host -ForegroundColor Red "ERROR: Racadm failed. racadm may be missing"}
     }
-    Write-Host "Please wait while TSRs are collected. Ussually this takes 2-5 minutes per node."
-    IF(!($LeaveShare -eq $True)){
-        # Creating Scheduled Job to remove SMB share in 10 mins
-            Write-Host "Creating Scheduled Job to remove SMB share in 10 mins..."
-            $dateTime = (Get-Date).AddSeconds(600)
-            $T = New-JobTrigger -Once -At "$($dateTime.ToString("MM/dd/yyyy HH:mm"))" 
-            IF(Get-ScheduledJob | Where-Object{$_.Name -eq "TSRCollector"}){Unregister-ScheduledJob -Name "TSRCollector"}
-            Register-ScheduledJob -Name "TSRCollector" -Trigger $T -ScriptBlock {
-                # Remove share
-                    Remove-SmbShare -Name "Logs" -Force
-            }
-        # Change directory to the shared folder were the TSRs will be put
-            cd $ShareFolder
-            Invoke-Expression "explorer ."
+    IF($result.StatusCode -eq 202){Write-Host "    StatusCode:"$result.StatusCode "Successfully scheduled TSR" }
+    Else{
+        $iDRACIPs[$iDRACIPs.IndexOf("$credfail$idrac_ip")]="#$idrac_ip"
+        Write-Host "    ERROR: StatusCode:" $result.StatusCode "Failed to scheduled TSR" -ForegroundColor Red
+        }
     }
+
+
+    Write-Host "Please wait while TSRs are collected. Usually this takes 2-5 minutes per node." -ForegroundColor Green
+    Write-Host "TSRs will be saved at $MyTemp\logs" -ForegroundColor Green
 } #End ShouldProcess
+if ($dowait) {
+    New-Item "$MyTemp\logs\TSRCollector" -ItemType "directory" -ErrorAction SilentlyContinue | Out-Null
+    do {
+        $drac_Cred=$credential
+        $idracCount=$iDRACIPs.count
+        foreach ($idrac_ip in $iDRACIPs) {
+           if ($idrac_ip.contains("!") -and -not $idrac_ip.Contains("#")) {$drac_Cred=$draccreds[$idrac_ip]}
+           $idrac_ip=$idrac_ip.replace("!","")
+           if (!($idrac_ip.Contains("#"))) {
+                $uri = "https://$idrac_ip/redfish/v1/Systems/System.Embedded.1"
+                $result = Invoke-WebRequest -Uri $uri -Credential $drac_Cred -Method Get -UseBasicParsing -ErrorVariable RespErr -Headers @{"Accept"="application/json"}
+                $servicetag = ($result.Content | ConvertFrom-Json).Oem.Dell.DellSystem.ChassisServiceTag
+                if (!(test-path "$MyTemp\logs\TSRCollector\TSR*_$($servicetag).zip")) {
+                    try {$result=Invoke-WebRequest -UseBasicParsing -Uri "https://$idrac_ip/redfish/v1/Dell/sacollect.zip" -Credential $drac_Cred -Method GET -OutFile "$MyTemp\logs\TSRCollector\TSR$(get-date -Format "yyyyMMddHHmmss")_$($servicetag).zip" -ErrorAction SilentlyContinue -ErrorVariable RespErr} catch {}
+                } 
+           } else {$idracCount--}
+
+        }
+    $TSRsCollected = (Get-ChildItem -Path $MyTemp\logs -Filter "TSR??????????????_*.zip" -Recurse)
+    $totalTSRsCollected = $TSRsCollected.Count
+    $i++
+    Write-Host "$totalTSRsCollected / $($idracCount) TSR's collected so far, and waited $i / 20 minutes"
+    if ($totalTSRsCollected -lt $idracCount) {Sleep -Seconds 60}
+    }
+    while ($totalTSRsCollected -lt $idracCount -and $i -le 20)
+    Get-ChildItem -Path $MyTemp\logs -Filter "TSR??????????????_*.zip" -Recurse | Compress-Archive -DestinationPath "$MyTemp\logs\TSRReports_$(get-date -Format "yyyyMMdd-HHmm")_$($CaseNumber)"
+    foreach ($idrac_ip in $iDRACIPs) {if (($idrac_ip -match "#")) {Write-Host "ERROR: Failed to capture TSR from $idrac_ip" -ForegroundColor Red}}
+    $iDRACIPs=""
+}
+return $iDRACIPs
 Stop-Transcript
 }# End Invoke-TSRCollector

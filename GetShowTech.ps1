@@ -10,8 +10,8 @@ Function Invoke-GetShowTech {
     [CmdletBinding(
         SupportsShouldProcess = $true,
         ConfirmImpact = 'High')]
-        param($param)
-
+        param([Parameter(Mandatory=$False)]
+         [string] $CaseNumber)
     
     Remove-Variable * -ErrorAction SilentlyContinue
     Clear-Host
@@ -20,7 +20,7 @@ Function Invoke-GetShowTech {
     Start-Transcript -NoClobber -Path "C:\programdata\Dell\GetShowTech\GetShowTech_$DateTime.log"
 
 $text=@"
-v1.1
+v1.11
    ___     _   ___ _               _____       _    
   / __|___| |_/ __| |_  _____ __ _|_   _|__ __| |_  
  | (_ / -_)  _\__ \ ' \/ _ \ V  V / | |/ -_) _| ' \ 
@@ -47,7 +47,9 @@ if ($PSCmdlet.ShouldProcess($param)) {
 
     # Collect Show Techs
         Write-Host "Gathering Show Tech-Support(s)..."
-
+    # Get Case #
+   if (-not ($Casenumber)) {$CaseNumber = Read-Host -Prompt "Please enter relevant case number or Service tag"}
+    
     # Get switch IP addresses
         $SwIPs=Read-Host "Please enter comma delimited list of switch IP addresse(s)"
         $i=0
@@ -101,19 +103,24 @@ if ($PSCmdlet.ShouldProcess($param)) {
                 $Switchout | Out-File -FilePath "$MyTemp\ShowTechs\$($SwIp)_ShowTech.log" -Force
          }
 
-    # Zip up show techs
+   # Zip up show techs
         Write-Host "Compressing show techs..."
         $DT=Get-Date -Format "yyyyMMddHHmm"
         IF(Test-Path -Path "$MyTemp\logs"){
-            Compress-Archive -Path "$MyTemp\ShowTechs\*.*" -DestinationPath "$MyTemp\logs\ShowTechs_$($DT)"
+            $ZipPath="$MyTemp\logs\ShowTechs_$($CaseNumber)_$($DT).zip"
+            Compress-Archive -Path "$MyTemp\ShowTechs\*.*" -DestinationPath "$MyTemp\logs\ShowTechs_$($CaseNumber)_$($DT)"
             Write-Host "Logs can be found here: $MyTemp\logs\ShowTechs_$($DT).zip"
         }Else{
             $OutFolder=$MyTemp+"\Logs"
+            $ZipPath="$MyTemp\logs\ShowTechs_$($CaseNumber)_$($DT).zip"
             New-Item -ItemType Directory -Force -Path $OutFolder  >$null 2>&1
-            Compress-Archive -Path "$MyTemp\ShowTechs\*.*" -DestinationPath "$MyTemp\logs\ShowTechs_$($DT)"
-            Write-Host "Logs can be found here: $MyTemp\logs\ShowTechs_$($DT).zip"
+            Compress-Archive -Path "$MyTemp\ShowTechs\*.*" -DestinationPath "$MyTemp\logs\ShowTechs_$($CaseNumber)_$($DT)"
+            Write-Host "Logs can be found here: ShowTechs_$($CaseNumber)_$($DT).zip"
         }
+#Get the File-Name without path
+$name = (Get-Item $ZipPath).Name
 
+}
     # Clean up show techs
         Write-Host "Clean up..."
         Remove-Item "$MyTemp\ShowTechs" -Recurse -Confirm:$false -Force
@@ -131,4 +138,4 @@ if ($PSCmdlet.ShouldProcess($param)) {
         Stop-Transcript
     }
 } #end if ShouldProcess
-}# end of Invoke-GetShowTech
+# end of Invoke-GetShowTech
